@@ -12,11 +12,12 @@ enum match_t
 	MATCH_PREGAME,
 	MATCH_GAME,
 	MATCH_POST,
+	// Kyper - Discount Arena
 	ARENA_SETUP,
-	ARENA_PREROUND,
-	ARENA_ROUND,
 	ARENA_INTERMISSION,
-	ARENA_POST
+	ARENA_PREROUND,
+	ARENA_ROUND
+	// Kyper
 };
 
 enum elect_t
@@ -84,8 +85,11 @@ cvar_t *warp_list;
 cvar_t *warn_unbalanced;
 
 // Kyper - Discount Arena
-cvar_t *arenaroundtime;       // round time, in seconds
-cvar_t *arenaroundcooldown;   // period between round start and end, in seconds
+cvar_t *dca_roundtime;       // round time, in seconds
+cvar_t *dca_roundcooldown;   // period between round start and end, in seconds
+cvar_t *dca_warmuptime;      // intermission period after setup completed/last round won, in seconds
+cvar_t *dca_roundscorelimit; // number of rounds to win the match
+cvar_t *dca_useready;        // require players to ready up before starting match
 // Kyper
 
 // Index for various CTF pics, this saves us from calling gi.imageindex
@@ -211,8 +215,12 @@ void CTFSpawn()
 		ctfgame.match = ARENA_SETUP;
 		gi.cvar_set("matchlock", "0");
 		matchlock = gi.cvar("matchlock", "0", CVAR_SERVERINFO);
-		arenaroundtime = gi.cvar("arenaroundtime", "60", CVAR_NOFLAGS);
-		arenaroundcooldown = gi.cvar("arenaroundcooldown", "3", CVAR_NOFLAGS);
+
+		dca_roundtime = gi.cvar("dca_roundtime", "60", CVAR_NOFLAGS);
+		dca_roundcooldown = gi.cvar("dca_roundcooldown", "3", CVAR_NOFLAGS);
+		dca_warmuptime = gi.cvar("dca_warmuptime", "20", CVAR_NOFLAGS);
+		dca_roundscorelimit = gi.cvar("dca_roundscorelimit", "10", CVAR_NOFLAGS);
+		dca_useready = gi.cvar("dca_useready", "0", CVAR_NOFLAGS);
 	}
 	// Kyper
 
@@ -812,6 +820,8 @@ THINK(CTFDropFlagThink) (edict_t *ent) -> void
 		gi.LocBroadcast_Print(PRINT_HIGH, "$g_flag_returned",
 				   CTFTeamName(CTF_TEAM2));
 	}
+
+	gi.sound(ent, CHAN_RELIABLE | CHAN_NO_PHS_ADD | CHAN_AUX, gi.soundindex("ctf/flagret.wav"), 1, ATTN_NONE, 0);
 }
 
 // Called from PlayerDie, to drop the flag from a dying player
@@ -1048,11 +1058,17 @@ void SetCTFStats(edict_t *ent)
 
 	// Kyper - Discount Arena test
 	if (g_arena_enabled->integer)
-	{		
-		gi.configstring(CONFIG_CTF_TEAMINFO, "Discount Arena\ndca_help for info");
-		ent->client->ps.stats[STAT_ARENA_COUNTDOWN] = CTFArenaCountdown();
+	{
+		gi.configstring(CONFIG_CTF_TEAMINFO, CTFArenaCurrentRound());
+		if (CTFArenaInPreround())
+			ent->client->ps.stats[STAT_ARENA_COUNTMSG] = CONFIG_CTF_TEAMINFO;
+		else
+			ent->client->ps.stats[STAT_ARENA_COUNTMSG] = 0;
+
+		gi.configstring(CS_DCA_HELP, "Discount Arena\ndca_help for info");		
 		//ent->client->ps.stats[STAT_ARENA_COUNTMSG] = CTFArenaRoundDuration();
-		ent->client->ps.stats[STAT_ARENA_COUNTMSG] = CONFIG_CTF_TEAMINFO;
+		ent->client->ps.stats[STAT_ARENA_COUNTDOWN] = CTFArenaCountdown();
+		ent->client->ps.stats[STAT_ARENA_HELP] = CS_DCA_HELP;
 	}
 	// Kyper
 
@@ -1126,6 +1142,20 @@ void SetCTFStats(edict_t *ent)
 						p1 = imageindex_i_ctf1t;
 						break;
 					}
+
+				// [Paril-KEX] make sure there is a dropped version on the map somewhere
+				if (p1 == imageindex_i_ctf1d)
+				{
+					e = G_FindByString<&edict_t::classname>(e, "item_flag_team1");
+
+					if (e == nullptr)
+					{
+						CTFResetFlag(CTF_TEAM1);
+						gi.LocBroadcast_Print(PRINT_HIGH, "$g_flag_returned",
+							CTFTeamName(CTF_TEAM1));
+						gi.sound(ent, CHAN_RELIABLE | CHAN_NO_PHS_ADD | CHAN_AUX, gi.soundindex("ctf/flagret.wav"), 1, ATTN_NONE, 0);
+					}
+				}
 			}
 			else if (e->spawnflags.has(SPAWNFLAG_ITEM_DROPPED))
 				p1 = imageindex_i_ctf1d; // must be dropped
@@ -1147,6 +1177,20 @@ void SetCTFStats(edict_t *ent)
 						p2 = imageindex_i_ctf2t;
 						break;
 					}
+
+				// [Paril-KEX] make sure there is a dropped version on the map somewhere
+				if (p2 == imageindex_i_ctf2d)
+				{
+					e = G_FindByString<&edict_t::classname>(e, "item_flag_team2");
+
+					if (e == nullptr)
+					{
+						CTFResetFlag(CTF_TEAM2);
+						gi.LocBroadcast_Print(PRINT_HIGH, "$g_flag_returned",
+							CTFTeamName(CTF_TEAM2));
+						gi.sound(ent, CHAN_RELIABLE | CHAN_NO_PHS_ADD | CHAN_AUX, gi.soundindex("ctf/flagret.wav"), 1, ATTN_NONE, 0);
+					}
+				}
 			}
 			else if (e->spawnflags.has(SPAWNFLAG_ITEM_DROPPED))
 				p2 = imageindex_i_ctf2d; // must be dropped
@@ -1597,6 +1641,11 @@ void CTFTeam_f(edict_t *ent)
 		return;
 	}
 
+	// Kyper - Discount Arena - set ready status on new joiners outside of ARENA_SETUP
+	if (dca_useready->integer && ctfgame.match >= ARENA_INTERMISSION)
+		ent->client->resp.ready = true;
+	// Kyper
+
 	ent->health = 0;
 	player_die(ent, ent, ent, 100000, vec3_origin, { MOD_SUICIDE, true });
 
@@ -1671,7 +1720,7 @@ void CTFScoreboardMessage(edict_t *ent, edict_t *killer)
 	// [Paril-KEX] time & frags
 	if (teamplay->integer)
 	{
-		if (fraglimit->integer)
+		if (fraglimit->integer && !g_arena_enabled->integer)
 		{
 			fmt::format_to(std::back_inserter(string), FMT_STRING("xv -20 yv -10 loc_string2 1 $g_score_frags \"{}\" "), fraglimit->integer);
 		}
@@ -1691,15 +1740,17 @@ void CTFScoreboardMessage(edict_t *ent, edict_t *killer)
 	// team one
 	if (teamplay->integer)
 	{
+		// Kyper - Discount Arena - center the banners
 		fmt::format_to(std::back_inserter(string),
-			FMT_STRING("if 25 xv -32 yv 8 pic 25 endif "
-			"xv -123 yv 28 cstring \"{}\" "
-			"xv 41 yv 12 num 3 19 "
-			"if 26 xv 208 yv 8 pic 26 endif "
-			"xv 117 yv 28 cstring \"{}\" "
-			"xv 280 yv 12 num 3 21 "),
+			FMT_STRING("if 25 xv -67 yv 8 pic 25 endif "
+			"xv -158 yv 28 cstring \"{}\" "
+			"xv 6 yv 12 num 3 19 "
+			"if 26 xv 253 yv 8 pic 26 endif "
+			"xv 162 yv 28 cstring \"{}\" "
+			"xv 325 yv 12 num 3 21 "),
 			total[0],
 			total[1]);
+		// Kyper
 	}
 	else
 	{
@@ -1725,12 +1776,21 @@ void CTFScoreboardMessage(edict_t *ent, edict_t *killer)
 			cl = &game.clients[sorted[0][i]];
 			cl_ent = g_edicts + 1 + sorted[0][i];
 
-			std::string_view entry = G_Fmt("ctf -40 {} {} {} {} {} ",
+			// Kyper - Discount Arena - add damage_dealt
+			// add damage_dealt, modify the layout so long names (MAX_NETNAME - 32 chars) will hopefully fit
+			// "ctf" seems to be some preset, I'd replace it with a string and truncate the names but this isn't a fixed-width font...
+			bool highlight = ent == cl_ent ? 1 : 0;
+
+			std::string_view entry = G_Fmt("ctf -120 {} {} {} {} {} xv -159 string{} \"{}\" ",
 						42 + i * 8,
 						sorted[0][i],
 						cl->resp.score,
 						cl->ping > 999 ? 999 : cl->ping,
-						cl_ent->client->pers.inventory[IT_FLAG2] ? "sbfctf2" : "\"\"");
+						cl_ent->client->pers.inventory[IT_FLAG2] ? "sbfctf2" : "\"\"",
+						highlight ? "2" : "",
+						cl->resp.damage_dealt
+				);
+			// Kyper
 
 			if (string.size() + entry.size() < MAX_CTF_STAT_LENGTH)
 			{
@@ -1745,13 +1805,19 @@ void CTFScoreboardMessage(edict_t *ent, edict_t *killer)
 			cl = &game.clients[sorted[1][i]];
 			cl_ent = g_edicts + 1 + sorted[1][i];
 
-			std::string_view entry = G_Fmt("ctf 200 {} {} {} {} {} ",
+			// Kyper - Discount Arena - add damage_dealt, modify layout for long names
+			bool highlight = ent == cl_ent ? 1 : 0;
+
+			std::string_view entry = G_Fmt("ctf 200 {} {} {} {} {} xv 161 string{} \"{}\" ",
 						42 + i * 8,
 						sorted[1][i],
 						cl->resp.score,
 						cl->ping > 999 ? 999 : cl->ping,
-						cl_ent->client->pers.inventory[IT_FLAG1] ? "sbfctf1" : "\"\"");
-			
+						cl_ent->client->pers.inventory[IT_FLAG1] ? "sbfctf1" : "\"\"",
+						highlight ? "2" : "",
+						cl->resp.damage_dealt);
+			// Kyper
+
 			if (string.size() + entry.size() < MAX_CTF_STAT_LENGTH)
 			{
 				string += entry;
@@ -2378,7 +2444,7 @@ void CTFArenaStartRound()
 	edict_t* ent;
 
 	ctfgame.match = ARENA_ROUND;
-	ctfgame.matchtime = level.time + gtime_t::from_sec(arenaroundtime->value);
+	ctfgame.matchtime = level.time + gtime_t::from_sec(dca_roundtime->value);
 	ctfgame.countdown = false;
 
 	ctfgame.team1 = ctfgame.team2 = 0;
@@ -2394,7 +2460,7 @@ void CTFArenaStartRound()
 		ent->client->resp.ctf_state = 0;
 		ent->client->resp.ghost = nullptr;
 
-		gi.LocCenter_Print(ent, "*** FIGHT! ***");
+		gi.LocCenter_Print(ent, "FIGHT!");
 	}
 
 	gi.configstring(CONFIG_CTF_TEAMINFO, "");
@@ -2413,8 +2479,13 @@ void CTFArenaHelp(edict_t *ent)
 								  "Cvars:\n",
 								  "================\n",
 								  "matchstarttime: reused from CTF, pre-round duration in seconds. Default: 9\n",
-								  "arenaroundtime: duration of a round in seconds. Default: 60\n",
-								  "arenaroundcooldown: period between round end and start of pre-round. Default 3\n",
+								  "dca_roundtime: duration of a round in seconds. Default: 60\n",
+								  "dca_roundcooldown: period between round end and start of pre-round. Default 3\n",
+								  "dca_warmuptime: duration of intermission/warmup time in seconds. Default 20\n",
+								  "dca_roundscorelimit: number of rounds a team needs to win. Default 10\n",
+								  "dca_useready: require players to ready up before starting. Default 0\n",
+								  "g_arena_start_health: Starting health. Default: 100\n",
+								  "g_arena_start_armor:  Starting armor.  Default: 100\n",
 								  "g_arena_enabled: enables Discount Arena mod. 0 setting untested. Default: 1\n",
 								  "\n",
 								  "Download the server binary at:\n",
@@ -2620,11 +2691,19 @@ void CTFReady(edict_t *ent)
 		return;
 	}
 
-	if (ctfgame.match != MATCH_SETUP)
+	// Kyper - Discount Arena
+	// maybe I should stop bothering to preserve old behaviour...
+	if (dca_useready->integer && ctfgame.match >= ARENA_PREROUND)
+	{
+		gi.LocClient_Print(ent, PRINT_HIGH, "Match has already started.\n");
+		return;
+	}
+	else if (!dca_useready->integer && ctfgame.match != MATCH_SETUP)
 	{
 		gi.LocClient_Print(ent, PRINT_HIGH, "A match is not being setup.\n");
 		return;
 	}
+	// Kyper
 
 	if (ent->client->resp.ready)
 	{
@@ -2650,12 +2729,23 @@ void CTFReady(edict_t *ent)
 	}
 	if (!j && t1 && t2)
 	{
-		// everyone has commited
-		gi.LocBroadcast_Print(PRINT_CHAT, "All players have committed.  Match starting\n");
-		ctfgame.match = MATCH_PREGAME;
-		ctfgame.matchtime = level.time + gtime_t::from_sec(matchstarttime->value);
-		ctfgame.countdown = false;
-		gi.positioned_sound(world->s.origin, world, CHAN_AUTO | CHAN_RELIABLE, gi.soundindex("misc/talk1.wav"), 1, ATTN_NONE, 0);
+		// everyone has commited		
+		// Kyper - Discount Arena
+		// maybe I should stop bothering to preserve old behaviour...
+		if (ctfgame.match == MATCH_SETUP)
+		{
+			gi.LocBroadcast_Print(PRINT_CHAT, "All players have committed.  Match starting\n");
+			ctfgame.match = MATCH_PREGAME;
+			ctfgame.matchtime = level.time + gtime_t::from_sec(matchstarttime->value);
+			ctfgame.countdown = false;
+			gi.positioned_sound(world->s.origin, world, CHAN_AUTO | CHAN_RELIABLE, gi.soundindex("misc/talk1.wav"), 1, ATTN_NONE, 0);
+		}
+		else if (ctfgame.match == ARENA_SETUP)
+		{
+			gi.LocBroadcast_Print(PRINT_CHAT, "All players ready, entering warmup\n");
+			CTFArenaEnterWarmup();
+		}
+		// Kyper
 	}
 }
 
@@ -2667,11 +2757,19 @@ void CTFNotReady(edict_t *ent)
 		return;
 	}
 
-	if (ctfgame.match != MATCH_SETUP && ctfgame.match != MATCH_PREGAME)
+	// Kyper - Discount Arena
+	// maybe I should stop bothering to preserve old behaviour...
+	if (dca_useready->integer && ctfgame.match >= ARENA_PREROUND)
+	{
+		gi.LocClient_Print(ent, PRINT_HIGH, "Match has already started.\n");
+		return;
+	}
+	else if (!dca_useready->integer && ctfgame.match != MATCH_SETUP && ctfgame.match != MATCH_PREGAME)
 	{
 		gi.LocClient_Print(ent, PRINT_HIGH, "A match is not being setup.\n");
 		return;
 	}
+	// Kyper
 
 	if (!ent->client->resp.ready)
 	{
@@ -2688,6 +2786,13 @@ void CTFNotReady(edict_t *ent)
 		ctfgame.match = MATCH_SETUP;
 		ctfgame.matchtime = level.time + gtime_t::from_min(matchsetuptime->value);
 	}
+	// Kyper - Discount Arena
+	else if (ctfgame.match == ARENA_INTERMISSION)
+	{
+		gi.LocBroadcast_Print(PRINT_CHAT, "Returning to setup.\n");
+		ctfgame.match = ARENA_SETUP;
+	}
+	// Kyper
 }
 
 void CTFGhost(edict_t *ent)
@@ -2812,6 +2917,10 @@ void CTFJoinTeam(edict_t *ent, ctfteam_t desired_team)
 	// Kyper - Discount Arena - notify joining player if round has started
 	if (ctfgame.match == ARENA_ROUND)
 		gi.LocCenter_Print(ent, "Respawning after round...");
+
+	// set ready status on new joiners outside of ARENA_SETUP
+	if (dca_useready->integer && ctfgame.match >= ARENA_INTERMISSION)
+		ent->client->resp.ready = true;
 	// Kyper
 
 	PutClientInServer(ent);
@@ -3069,7 +3178,7 @@ bool CTFStartClient(edict_t *ent)
 
 void CTFObserver(edict_t *ent)
 {
-	if (!G_TeamplayEnabled())
+	if (!G_TeamplayEnabled() || g_teamplay_force_join->integer)
 		return;
 
 	// start as 'observer'
@@ -3117,12 +3226,17 @@ bool CTFArenaInRound()
 int CTFArenaCountdown()
 {
 	int t = (ctfgame.matchtime - level.time).seconds<int>();
-	
-	//if (!ctfgame.countdown)
+
 	if (!CTFArenaInPreround())
 		return 0;
-	
+
 	return t % 60;
+}
+
+// Kyper - Discount Arena
+const char *CTFArenaCurrentRound()
+{
+	return G_Fmt("Round {} of {}", ctfgame.total1 + ctfgame.total2 + 1, dca_roundscorelimit->integer * 2 - 1).data();
 }
 
 // Kyper - Discount Arena - get elapsed time of active round
@@ -3134,6 +3248,88 @@ int CTFArenaRoundDuration()
 		return 0;
 
 	return t;
+}
+
+// Kyper - Discount Arena
+void CTFArenaEnterWarmup()
+{
+	edict_t *ent;
+	int i;
+
+	for (i = 1; i <= game.maxclients; i++)
+	{
+		ent = g_edicts + i;
+		if (!ent->inuse || !ent->deadflag)
+			continue;
+
+		arena_respawn(ent);
+	}
+
+	ctfgame.match = ARENA_INTERMISSION;
+	ctfgame.matchtime = level.time + gtime_t::from_sec(dca_warmuptime->integer);
+	ctfgame.countdown = false;
+}
+
+// Kyper - Discount Arena
+void CTFArenaEnterPreround()
+{
+	ctfgame.match = ARENA_PREROUND;
+	ctfgame.matchtime = level.time + gtime_t::from_sec(matchstarttime->integer);
+	ctfgame.countdown = false;
+}
+
+// Kyper - Discount Arena
+void CTFArenaCheckWinner()
+{
+	if (ctfgame.total1 >= dca_roundscorelimit->integer || ctfgame.total2 >= dca_roundscorelimit->integer)
+	{
+		gi.LocBroadcast_Print(PRINT_CHAT, "{} wins with {} points over {}'s {} points\n",
+			ctfgame.total1 > ctfgame.total2 ? "Red" : "Blue",
+			max(ctfgame.total1, ctfgame.total2),
+			ctfgame.total1 > ctfgame.total2 ? "Blue" : "Red",
+			min(ctfgame.total1, ctfgame.total2));
+		CTFArenaEnterWarmup();
+	}
+}
+
+// Kyper - Discount Arena
+// stolen from CTFReady(), all player ready status is only checked at the end of ready/notready commands
+// but this can change ex. if dca_useready is toggled or bots join
+bool CTFArenaCheckReady()
+{
+	uint32_t i, j;
+	edict_t *e;
+	uint32_t t1, t2;
+
+	t1 = t2 = 0;	
+
+	for (j = 0, i = 1; i <= game.maxclients; i++)
+	{
+		e = g_edicts + i;
+		if (!e->inuse)
+			continue;
+		if (e->client->resp.ctf_team != CTF_NOTEAM && !e->client->resp.ready && !(e->svflags & SVF_BOT))
+			j++;
+		if (e->client->resp.ctf_team == CTF_TEAM1)
+			t1++;
+		else if (e->client->resp.ctf_team == CTF_TEAM2)
+			t2++;
+	}
+
+	// check that both teams have at least 1 player
+	// only check ready status if dca_useready is enabled and match hasn't started (SETUP/INTERMISSION)
+	if (dca_useready->integer && ctfgame.match <= ARENA_INTERMISSION)
+	{
+		if (!j && t1 && t2)
+			return true;
+	}
+	else
+	{
+		if (t1 && t2)
+			return true;
+	}
+
+	return false;
 }
 
 // Kyper - Discount Arena - modified from CTFCheckRules()
@@ -3150,7 +3346,7 @@ bool CTFArenaCheckRules()
 		ctfgame.election = ELECT_NONE;
 	}
 
-	if (ctfgame.match == ARENA_PREROUND || ctfgame.match == ARENA_ROUND || ctfgame.match == ARENA_SETUP)
+	if (ctfgame.match == ARENA_PREROUND || ctfgame.match == ARENA_ROUND || ctfgame.match == ARENA_SETUP || ctfgame.match == ARENA_INTERMISSION)
 	{
 		t = (ctfgame.matchtime - level.time).seconds<int>();
 		int team1 = 0, team2 = 0;
@@ -3164,14 +3360,15 @@ bool CTFArenaCheckRules()
 		{ // time ended on something
 			switch (ctfgame.match)
 			{
+			case ARENA_INTERMISSION:
+				CTFArenaEnterPreround();
+				ctfgame.total1 = ctfgame.total2 = 0;
+				return false;
 			case ARENA_PREROUND:
 				CTFArenaStartRound();
 				return false;
-
 			case ARENA_ROUND:
-				ctfgame.match = ARENA_PREROUND;
-				ctfgame.matchtime = level.time + gtime_t::from_sec(matchstarttime->value);
-				ctfgame.countdown = false;
+				CTFArenaEnterPreround();
 
 				// first check if one team has more players alive
 				// if not, check health/armor
@@ -3195,23 +3392,23 @@ bool CTFArenaCheckRules()
 
 				if (team1_alive > team2_alive)
 				{
-					gi.LocBroadcast_Print(PRINT_CHAT, "Time over, team 1 wins by more players alive!\n");
+					gi.LocBroadcast_Print(PRINT_CHAT, "Time over, Red wins by more players alive!\n");
 					G_AdjustTeamScore(CTF_TEAM1, 1);
 				}
 				else if (team2_alive > team1_alive)
 				{
-					gi.LocBroadcast_Print(PRINT_CHAT, "Time over, team 2 wins by more players alive!\n");
+					gi.LocBroadcast_Print(PRINT_CHAT, "Time over, Blue wins by more players alive!\n");
 					G_AdjustTeamScore(CTF_TEAM2, 1);
 				}
 				else if (team1_health > team2_health)
 				{
-					G_FmtTo(text, "Time over! Team 1 health: {} > Team 2: {}\n", team1_health, team2_health);
+					G_FmtTo(text, "Time over! Red health: {} > Blue: {}\n", team1_health, team2_health);
 					gi.LocBroadcast_Print(PRINT_CHAT, text);
 					G_AdjustTeamScore(CTF_TEAM1, 1);
 				}
 				else if (team2_health > team1_health)
 				{
-					G_FmtTo(text, "Time over! Team 2 health: {} > Team 1: {}\n", team2_health, team1_health);
+					G_FmtTo(text, "Time over! Blue health: {} > Red: {}\n", team2_health, team1_health);
 					gi.LocBroadcast_Print(PRINT_CHAT, text);
 					G_AdjustTeamScore(CTF_TEAM2, 1);
 				}
@@ -3220,8 +3417,9 @@ bool CTFArenaCheckRules()
 					gi.LocBroadcast_Print(PRINT_CHAT, "Time over, no points!\n");
 				}
 
+				gi.LocBroadcast_Print(PRINT_CHAT, "Red: {} points   Blue: {} points\n", ctfgame.total1, ctfgame.total2);
+				CTFArenaCheckWinner();
 				return false;
-
 			default:
 				break;
 			}
@@ -3240,42 +3438,45 @@ bool CTFArenaCheckRules()
 				ent = g_edicts + i;
 				if (!ent->inuse)
 					continue;
-				if (ent->client->resp.ctf_team != CTF_NOTEAM &&
-					!ent->client->resp.ready)
+				if (ent->client->resp.ctf_team != CTF_NOTEAM &&	!ent->client->resp.ready && !(ent->svflags & SVF_BOT))
 					j++;
 			}
 
-			G_FmtTo(text, "ARENA_SETUP: waiting for players");
+			if (!dca_useready->integer)
+				G_FmtTo(text, "ARENA_SETUP: waiting for players");
+			else
+				G_FmtTo(text, "ARENA_SETUP - players not ready: {}", j);
 
 			gi.configstring(CONFIG_CTF_MATCH, text);
 
-			// count up the team totals
-			for (i = 1; i <= game.maxclients; i++)
+			if (CTFArenaCheckReady())
 			{
-				ent = g_edicts + i;
-				if (!ent->inuse)
-					continue;
-				if (ent->client->resp.ctf_team == CTF_TEAM1)
-					team1++;
-				else if (ent->client->resp.ctf_team == CTF_TEAM2)
-					team2++;
+				if (!dca_useready->integer)
+					gi.LocBroadcast_Print(PRINT_CHAT, "Both teams have players, entering warmup.\n");
+				else
+					gi.LocBroadcast_Print(PRINT_CHAT, "Both teams ready, entering warmup.\n");
+
+				CTFArenaEnterWarmup();
 			}
 
-			if (team1 >= 1 && team2 >= 1)
-			{
-				gi.LocBroadcast_Print(PRINT_CHAT, "Both teams have players, starting match.\n");
-				ctfgame.match = ARENA_PREROUND;
-				ctfgame.matchtime = level.time + gtime_t::from_sec(matchstarttime->value);
-				ctfgame.countdown = false;
-			}
+			break;
 
+		case ARENA_INTERMISSION:
+			G_FmtTo(text, "{:02}:{:02} - INTERMISSION", t / 60, t % 60);
+			gi.configstring(CONFIG_CTF_MATCH, text);
+
+			if (!CTFArenaCheckReady())
+			{
+				gi.LocBroadcast_Print(PRINT_CHAT, "Not enough players ready, back to setup.\n");
+				ctfgame.match = ARENA_SETUP;
+			}
 			break;
 
 		case ARENA_PREROUND:
 			G_FmtTo(text, "{:02}:{:02} UNTIL START - PREROUND", t / 60, t % 60);
 			gi.configstring(CONFIG_CTF_MATCH, text);
 
-			if (t <= matchstarttime->value - 2 && !ctfgame.countdown)
+			if (t <= matchstarttime->value && !ctfgame.countdown)
 			{
 				ctfgame.countdown = true;
 
@@ -3289,19 +3490,7 @@ bool CTFArenaCheckRules()
 				}
 			}
 
-			// keep checking if there are players on each team
-			for (i = 1; i <= game.maxclients; i++)
-			{
-				ent = g_edicts + i;
-				if (!ent->inuse)
-					continue;
-				if (ent->client->resp.ctf_team == CTF_TEAM1)
-					team1++;
-				else if (ent->client->resp.ctf_team == CTF_TEAM2)
-					team2++;
-			}
-
-			if (team1 <= 0 || team2 <= 0)
+			if (!CTFArenaCheckReady())
 			{
 				gi.LocBroadcast_Print(PRINT_CHAT, "Not enough players, cancelling match.\n");
 				ctfgame.match = ARENA_SETUP;
@@ -3330,32 +3519,33 @@ bool CTFArenaCheckRules()
 
 				if (endtime <= 1)  // final second of cooldown, check if only one surviving team
 				{
-					ctfgame.match = ARENA_PREROUND;
-					ctfgame.matchtime = level.time + gtime_t::from_sec(matchstarttime->value);
-					ctfgame.countdown = false;
+					CTFArenaEnterPreround();
 
 					if (!team1_alive && team2_alive)
 					{
-						gi.LocBroadcast_Print(PRINT_CHAT, "Team 1 all dead, restarting round.\n");
+						gi.LocBroadcast_Print(PRINT_CHAT, "Blue team wins the round!\n");
 						G_AdjustTeamScore(CTF_TEAM2, 1);
 						gi.configstring(CONFIG_CTF_TEAMINFO, "");
 					}
 					else if (team1_alive && !team2_alive)
 					{
-						gi.LocBroadcast_Print(PRINT_CHAT, "Team 2 all dead, restarting round.\n");
+						gi.LocBroadcast_Print(PRINT_CHAT, "Red team wins the round!\n");
 						G_AdjustTeamScore(CTF_TEAM1, 1);
 						gi.configstring(CONFIG_CTF_TEAMINFO, "");
 					}
 					else
 					{
-						gi.LocBroadcast_Print(PRINT_CHAT, "No survivors! Restarting round.\n");
+						gi.LocBroadcast_Print(PRINT_CHAT, "No survivors, no points awarded!\n");
 					}
+
+					gi.LocBroadcast_Print(PRINT_CHAT, "Red: {} points   Blue: {} points\n", ctfgame.total1, ctfgame.total2);
+					CTFArenaCheckWinner();
 				}
 			}
 			else if (!team1_alive || !team2_alive)
 			{
 				// enter cooldown period
-				ctfgame.matchtime = level.time + gtime_t::from_sec(arenaroundcooldown->value);
+				ctfgame.matchtime = level.time + gtime_t::from_sec(dca_roundcooldown->integer + 2);  // 2s offset
 				ctfgame.countdown = true;
 			}
 

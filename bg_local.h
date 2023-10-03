@@ -254,11 +254,13 @@ enum player_stat_t
 	STAT_SELECTED_ITEM_NAME,
 	// [Paril-KEX]
 	STAT_HEALTH_BARS, // two health bar values; 7 bits for value, 1 bit for active
-	// if active,
+	// [Paril-KEX]
+	STAT_ACTIVE_WEAPON,
 
 	// Kyper - Discount Arena - preround countdown and message
 	STAT_ARENA_COUNTDOWN,
 	STAT_ARENA_COUNTMSG,
+	STAT_ARENA_HELP,
 	// Kyper
 
 	// don't use; just for verification

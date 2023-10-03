@@ -22,8 +22,8 @@ local_game_import_t  gi;
 game_export_t  globals;
 spawn_temp_t   st;
 
-int	  sm_meat_index;
-int	  snd_fry;
+cached_modelindex		sm_meat_index;
+cached_soundindex		snd_fry;
 
 edict_t *g_edicts;
 
@@ -138,7 +138,9 @@ cvar_t *ai_allow_dm_spawn;
 cvar_t *ai_movement_disabled;
 
 // Kyper - Discount Arena
-cvar_t* g_arena_enabled;
+cvar_t *g_arena_enabled;
+cvar_t *g_arena_start_health;
+cvar_t *g_arena_start_armor;
 // Kyper
 
 static cvar_t *g_frames_per_frame;
@@ -269,6 +271,8 @@ void InitGame()
 
 	// Kyper - Discount Arena
 	g_arena_enabled = gi.cvar("g_arena_enabled", "1", CVAR_NOFLAGS);
+	g_arena_start_health = gi.cvar("g_arena_start_health", "100", CVAR_NOFLAGS);
+	g_arena_start_armor = gi.cvar("g_arena_start_armor", "100", CVAR_NOFLAGS);
 	// Kyper
 
 	// noset vars
@@ -341,7 +345,7 @@ void InitGame()
 	g_friendly_fire = gi.cvar("g_friendly_fire", "0", CVAR_NOFLAGS);
 	g_dm_force_respawn = gi.cvar("g_dm_force_respawn", "0", CVAR_NOFLAGS);
 	g_dm_force_respawn_time = gi.cvar("g_dm_force_respawn_time", "0", CVAR_NOFLAGS);
-	g_dm_spawn_farthest = gi.cvar("g_dm_spawn_farthest", "0", CVAR_NOFLAGS);
+	g_dm_spawn_farthest = gi.cvar("g_dm_spawn_farthest", "1", CVAR_NOFLAGS);
 	g_no_armor = gi.cvar("g_no_armor", "0", CVAR_NOFLAGS);
 	g_dm_allow_exit = gi.cvar("g_dm_allow_exit", "0", CVAR_NOFLAGS);
 	g_infinite_ammo = gi.cvar("g_infinite_ammo", "0", CVAR_LATCH);
@@ -454,6 +458,9 @@ Q2GAME_API game_export_t *GetGameAPI(game_import_t *import)
 	globals.Bot_TriggerEdict = Bot_TriggerEdict;
 	globals.Bot_GetItemID = Bot_GetItemID;
 	globals.Bot_UseItem = Bot_UseItem;
+	globals.Edict_ForceLookAtPoint = Edict_ForceLookAtPoint;
+	globals.Bot_PickedUpItem = Bot_PickedUpItem;
+
 	globals.Entity_IsVisibleToPlayer = Entity_IsVisibleToPlayer;
 	globals.GetShadowLightData = GetShadowLightData;
 
@@ -703,7 +710,7 @@ void CheckDMRules()
 		}
 	}
 
-	if (fraglimit->integer)
+	if (fraglimit->integer && !g_arena_enabled)  // Kyper - Discount Arena
 	{
 		// [Paril-KEX]
 		if (teamplay->integer)

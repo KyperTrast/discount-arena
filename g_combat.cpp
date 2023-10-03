@@ -534,6 +534,7 @@ void T_Damage(edict_t *targ, edict_t *inflictor, edict_t *attacker, const vec3_t
 	int		   psave;
 	int		   te_sparks;
 	bool	   sphere_notified; // PGM
+	int        damage_dealt;    // Kyper - Discount Arena
 
 	if (!targ->takedamage)
 		return;
@@ -696,6 +697,10 @@ void T_Damage(edict_t *targ, edict_t *inflictor, edict_t *attacker, const vec3_t
 		take -= asave;
 	}
 
+	// Kyper - Discount Arena
+	damage_dealt = asave + psave;
+	// Kyper
+
 	// treat cheat/powerup savings the same as armor
 	asave += save;
 
@@ -753,6 +758,12 @@ void T_Damage(edict_t *targ, edict_t *inflictor, edict_t *attacker, const vec3_t
 			else
 				SpawnDamage(te_sparks, point, normal, take);
 		}
+
+		// Kyper - Discount Arena
+		damage_dealt += clamp(min(targ->health, take), 0, take);
+		if (targ != attacker && attacker->client && !targ->deadflag && CTFArenaInRound())
+			attacker->client->resp.damage_dealt += damage_dealt;
+		// Kyper
 
 		if (!CTFMatchSetup())
 			targ->health = targ->health - take;

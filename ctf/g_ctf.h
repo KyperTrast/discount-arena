@@ -151,8 +151,13 @@ bool CTFArenaInPreround();
 bool CTFArenaInRound();
 int CTFArenaCountdown();
 int CTFArenaRoundDuration();
+const char *CTFArenaCurrentRound();
 void CTFArenaStartRound();
 void CTFArenaHelp(edict_t *ent);
+void CTFArenaEnterWarmup();
+void CTFArenaEnterPreround();
+void CTFArenaCheckWinner();
+bool CTFArenaCheckReady();
 // Kyper
 
 bool CTFCheckRules();

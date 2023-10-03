@@ -1144,6 +1144,11 @@ parsing textual entity definitions out of an ent file.
 */
 void SpawnEntities(const char *mapname, const char *entities, const char *spawnpoint)
 {
+	// clear cached indices
+	cached_soundindex::clear_all();
+	cached_modelindex::clear_all();
+	cached_imageindex::clear_all();
+
 	edict_t *ent;
 	int		 inhibit;
 	const char	 *com_token;
@@ -1381,12 +1386,13 @@ static void G_InitStatusbar()
 			sb.ifstat(STAT_CHASE).xv(0).yb(-68).string("CHASING").xv(64).stat_string(STAT_CHASE).endifstat();
 
 			// countdown to round start
-			sb.ifstat(STAT_ARENA_COUNTDOWN).xr(-350).yt(50).num(3, STAT_ARENA_COUNTDOWN).endifstat();
+			sb.ifstat(STAT_ARENA_COUNTDOWN).xr(-355).yt(50).num(3, STAT_ARENA_COUNTDOWN).endifstat();
 
-			// test - match duration
-			//sb.ifstat(STAT_ARENA_COUNTMSG).xr(-350).yt(50).num(3, STAT_ARENA_COUNTMSG).endifstat();
+			// round X of X
+			sb.ifstat(STAT_ARENA_COUNTMSG).xr(-360).yt(40).stat_string(STAT_ARENA_COUNTMSG).endifstat();
+
 			// bottom left mod name
-			sb.ifstat(STAT_ARENA_COUNTMSG).xl(12).yb(-24).stat_string(STAT_ARENA_COUNTMSG).endifstat();
+			sb.ifstat(STAT_ARENA_HELP).xl(12).yb(-24).stat_string(STAT_ARENA_HELP).endifstat();
 		}
 
 		// team info
@@ -1527,7 +1533,7 @@ void SP_worldspawn(edict_t *ent)
 
 	gi.configstring(CS_MAXCLIENTS, G_Fmt("{}", game.maxclients).data());
 
-	if (level.is_n64)
+	if (level.is_n64 && !deathmatch->integer)
 	{
 		gi.configstring(CONFIG_N64_PHYSICS, "1");
 		pm_config.n64_physics = true;
@@ -1562,7 +1568,7 @@ void SP_worldspawn(edict_t *ent)
 		gi.cvar_set("sv_gravity", st.gravity);
 	}
 
-	snd_fry = gi.soundindex("player/fry.wav"); // standing in lava / slime
+	snd_fry.assign("player/fry.wav"); // standing in lava / slime
 	
 	PrecacheItem(GetItemByIndex(IT_ITEM_COMPASS));
 	PrecacheItem(GetItemByIndex(IT_WEAPON_BLASTER));
@@ -1601,6 +1607,7 @@ void SP_worldspawn(edict_t *ent)
 	gi.soundindex("*pain75_2.wav");
 	gi.soundindex("*pain100_1.wav");
 	gi.soundindex("*pain100_2.wav");
+	gi.soundindex("*drown1.wav"); // [Paril-KEX]
 
 	// sexed models
 	for (auto &item : itemlist)
@@ -1642,6 +1649,10 @@ void SP_worldspawn(edict_t *ent)
 	gi.soundindex("player/u_breath1.wav");
 	gi.soundindex("player/u_breath2.wav");
 
+	gi.soundindex("player/wade1.wav");
+	gi.soundindex("player/wade2.wav");
+	gi.soundindex("player/wade3.wav");
+
 	gi.soundindex("items/pkup.wav");   // bonus item pickup
 	gi.soundindex("world/land.wav");   // landing thud
 	gi.soundindex("misc/h2ohit1.wav"); // landing splash
@@ -1655,7 +1666,7 @@ void SP_worldspawn(edict_t *ent)
 
 	gi.soundindex("infantry/inflies1.wav");
 
-	sm_meat_index = gi.modelindex("models/objects/gibs/sm_meat/tris.md2");
+	sm_meat_index.assign("models/objects/gibs/sm_meat/tris.md2");
 	gi.modelindex("models/objects/gibs/arm/tris.md2");
 	gi.modelindex("models/objects/gibs/bone/tris.md2");
 	gi.modelindex("models/objects/gibs/bone2/tris.md2");
@@ -1664,7 +1675,7 @@ void SP_worldspawn(edict_t *ent)
 	gi.modelindex("models/objects/gibs/head2/tris.md2");
 	gi.modelindex("models/objects/gibs/sm_metal/tris.md2");
 
-	gi.imageindex("loc_ping");
+	level.pic_ping = gi.imageindex("loc_ping");
 
 	//
 	// Setup light animation tables. 'a' is total darkness, 'z' is doublebright.
