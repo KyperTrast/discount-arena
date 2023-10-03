@@ -12,9 +12,9 @@ Steam: \<steam\>\steamapps\common\Quake 2\rerelease\
 GOG: \<GOG\>\Quake II Enhanced\
 Create a directory to store the binary and name it `dcarena`. Extract `discount-arena.zip` here and you will see a .DLL file. Then, use one of the two methods listed below to load the mod.
 ### Load the mod manually
-Load up Quake 2 and then press the tilde key (~) to open the console. Here, type `game dcarena` (no quotes) then hit Enter. Now, create a lobby and select `Team Deathmatch` as the game mode and turn on Instant Weapon Switch (optional, but original RA2 had a fast weapon switch). Configure the rest of the settings as desired, Discount Arena will be loaded once you start the game.
+Load up Quake 2 and then press the tilde key (~) to open the console. Here, type `game dcarena` (no quotes) then hit Enter. Now, create a lobby and select `Team Deathmatch` as the game mode and turn on `Instant Weapon Switch` (optional, but original RA2 had a fast weapon switch). Configure the rest of the settings as desired, Discount Arena will be loaded once you start the game.
 ###
-Get a copy of the "dcarena_bots.cfg" file from the source code above, and place it into your rerelease\baseq2 folder. Load up Quake 2 and then press the tilde key (~) to open the console. In here, type `exec lithsetup_bots.cfg` (no quotes) then hit Enter. This will create a local game with the below:
+Get a copy of the "dcarena_bots.cfg" file from the source code above, and place it into your rerelease\baseq2 folder. Load up Quake 2 and then press the tilde key (~) to open the console. In here, type `exec dcarena_bots.cfg` (no quotes) then hit Enter. This will create a local game with the below:
 * set `game dcarena`
 * set `g_instant_weapon_switch 1`
 * immediately load q2dm1 with `map q2dm1`
