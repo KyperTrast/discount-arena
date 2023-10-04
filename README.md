@@ -27,7 +27,7 @@ If you see "Discount Arena" in the bottom left then the mod has loaded. You can 
 * dca_roundtime - duration of a round in seconds (default: 60)
 * dca_roundcooldown - period between round end and start of pre-round (default: 3)
 * dca_warmuptime: duration of intermission/warmup time in seconds (default: 20)
-* dca_roundscorelimimt: number of rounds a team needs to win (default: 10)
+* dca_roundscorelimit: number of rounds a team needs to win (default: 10)
 * dca_useready: require players to ready up before starting (default: 0, OFF)
 * g_arena_start_health: Starting health (default: 100)
 * g_arena_start_armor: Starting armor (default: 100)
